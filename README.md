@@ -68,7 +68,7 @@ print(f"Total number of requests sent: {request_count}")
 
 df = pd.concat(result, ignore_index=True)
 df['DATE'] = pd.to_datetime(df["DATE"], format="%Y-%m-%d")
-df.to
+# df.to_parquet('data.parquet')
 df.head()
 ```
 
