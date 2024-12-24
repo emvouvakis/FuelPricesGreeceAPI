@@ -1,0 +1,157 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+org: emvouvakis
+# "app" enables Serverless Framework Dashboard features and sharing them with other Services.
+app: fuelprices
+# "service" is the name of this project. This will also be added to your AWS resource names.
+service: fuelprices
+
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: eu-west-3
+  stackName: fuelprices
+  stage: v2
+
+  deploymentBucket:
+      name: fuelprices-greece
+  iam: 
+    role: arn:aws:iam::${aws:accountId}:role/administrator-role
+
+
+functions:
+  # Lambda function that scrapes fuel price from the website
+  webscraping-lambda:
+    name: ${self:provider.stackName}-webscraping-lambda
+    handler: webscraping.main
+    timeout: 180
+
+  # Lambda function that cleans the data (Parses PDFs and stores data in s3 as parquet)
+  cleaning-lambda:
+    name: ${self:provider.stackName}-cleaning-lambda
+    handler: cleaning.main
+    timeout: 180
+
+  # Lambda function that serves the API. 
+  # The API is private and requires an API key
+  # This is done in order to keep into cosideration the usage plan
+  api-lambda:
+    name: ${self:provider.stackName}-api-lambda
+    handler: api.main
+    events:
+      - http:
+          path: /
+          method: get
+          private: true
+      - http:
+          path: /help
+          method: get
+          private: true
+      - http:
+          path: /data
+          method: get
+          private: true
+
+
+resources:
+  Resources:
+    ApiGatewayUsagePlan:
+      Type: AWS::ApiGateway::UsagePlan
+      Properties:
+        UsagePlanName: MonthlyUsagePlan
+        Description: "Monthly usage plan for Fuel Prices API"
+        Quota:
+          Limit: 100000  # Monthly request limit
+          Period: MONTH
+        Throttle:
+          BurstLimit: 100
+          RateLimit: 50
+        ApiStages:
+          - ApiId: !Ref ApiGatewayRestApi
+            Stage: ${self:provider.stage}
+
+    ApiGatewayUsagePlanKey:
+      Type: AWS::ApiGateway::UsagePlanKey
+      Properties:
+        KeyId:
+          Ref: ApiGatewayApiKey
+        KeyType: API_KEY
+        UsagePlanId:
+          Ref: ApiGatewayUsagePlan
+
+    ApiGatewayApiKey:
+      Type: AWS::ApiGateway::ApiKey
+      Properties:
+        Enabled: true
+        Name: FuelPricesApiKey
+        StageKeys:
+          - RestApiId:
+              Ref: ApiGatewayRestApi
+            StageName: ${self:provider.stage}
+
+
+# Step function that triggers webscraping-lambda and then the cleaning-lambda
+stepFunctions:
+  stateMachines:
+    scrapingAndCleaningStateMachine:
+      name: ${self:provider.stackName}-${self:provider.stage}-stateMachine
+      role: arn:aws:iam::${aws:accountId}:role/administrator-role
+
+      definition:
+        Comment: "Invoke cleaning-lambda after webscraping-lambda"
+        StartAt: WebScraping
+        States:
+          # WebScraping state triggers the webscraping-lambda, which scrapes the fuel prices
+          WebScraping:
+            Type: Task
+            Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:provider.stackName}-webscraping-lambda
+            Next: Cleaning
+            Catch:
+              - ErrorEquals: ["States.ALL"]
+                ResultPath: $.error
+                Next: NotifyFailure
+          # Cleaning state triggers the cleaning-lambda, which parses the PDFs and stores the data in s3 as parquet
+          Cleaning:
+            Type: Task
+            Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:provider.stackName}-cleaning-lambda
+            End: true
+            Catch:
+              - ErrorEquals: ["States.ALL"]
+                ResultPath: $.error
+                Next: NotifyFailure
+          # NotifyFailure state is used to send an SNS notification in case of failure
+          NotifyFailure:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: arn:aws:sns:${AWS::Region}:${AWS::AccountId}:update
+              Message.$: "States.Format('Error occurred in state machine execution: {}', $.error)"              
+              Subject: "[ERROR]: State Machine Failure Notification"
+            End: true
+      events:
+        - schedule: cron(0 12 * * ? *)
+
+
+# Exclude specific files and directories from the deployment package
+package:
+  exclude:
+    - node_modules/**
+    - README.md
+    - "*.json"
+    - "*.pkl"
+    - .gitignore
+    - "*.ipynb"
+    - "*.parquet"
+
+# Custom settings for the serverless-python-requirements plugin
+custom:
+  pythonRequirements:
+    useDownloadCache: false
+    useStaticCache: false
+    slim: true
+    zip: true
+
+# List of plugins to be used with this Serverless service
+plugins:
+  - serverless-python-requirements
+  - serverless-step-functions
