@@ -5,6 +5,7 @@ app: fuelprices
 # "service" is the name of this project. This will also be added to your AWS resource names.
 service: fuelprices
 
+frameworkVersion: '4.4.18'
 
 provider:
   name: aws
