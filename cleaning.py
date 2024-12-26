@@ -274,7 +274,7 @@ def main(event, context):
 
     except Exception as e:
         
-        cleaned_data = None
+        cleaned_data = pd.DataFrame()
         cleaned_data_keys=[]
         logger.info(f"No previous cleaned data found. Error: {e}")
 
@@ -329,13 +329,20 @@ def main(event, context):
             for col in result_df.columns
         ]
     
-    # If cleaned_data are found, append the new data to the existing cleaned data
-    if cleaned_data is not None:
-        logger.info(f"Appending new data to existing cleaned data.")
-        result_df = pd.concat([cleaned_data, result_df], ignore_index=True, sort=True)
+    # Save the cleaned data and errors to S3 only when new data are found
+    if not result_df.empty:
 
-    save_to_s3(all_errors, PARSED_FOLDER + "all_errors.pkl")
-    save_to_s3(result_df, PARSED_FOLDER + "cleaned_data.parquet")
+        # If cleaned_data are found, append the new data to the existing cleaned data
+        if not cleaned_data.empty:
+
+            logger.info(f"Appending new data to existing cleaned data.")
+            result_df = pd.concat([cleaned_data, result_df], ignore_index=True, sort=True)
+
+        save_to_s3(all_errors, PARSED_FOLDER + "all_errors.pkl")
+        save_to_s3(result_df, PARSED_FOLDER + "cleaned_data.parquet")
+        
+    else:
+        logger.info(f"No new data to save to S3.")
 
 
 def cleaning(date_df):

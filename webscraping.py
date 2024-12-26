@@ -94,7 +94,10 @@ def download_file(link):
 def process_pdf(filename):
     logger.info(f"Starting processing:{filename}")
     name = filename.split(".")[0]
-    date = datetime.strptime(name, "%d%m%Y").date()
+
+    if len(name) != 8:
+        logger.info(f"File {filename} is not valid.")
+        return None, None
 
     if name in all_data or name in all_errors:
         
@@ -172,7 +175,7 @@ def main(event, context):
 
     
     os.chdir('/tmp')
-    filenames = os.listdir(os.getcwd())
+    filenames = [f for f in os.listdir(os.getcwd()) if f.endswith('.pdf')]
     logger.info(filenames)
     number = 0
     error_count = 0
