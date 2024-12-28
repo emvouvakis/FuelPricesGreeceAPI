@@ -14,8 +14,9 @@ The Step Functions state machine is triggered daily at 12:00 PM (UTC). This setu
 
 The state machine consists of 3 tasks:
 1. **WebScraping**: Invokes the `webscraping-lambda` function to scrape the web for PDF links and download them.
-2. **Cleaning**: Invokes the `cleaning-lambda` function to process and clean the downloaded data.
-3. **NotifyFailure**: Sends an email notification via SNS if any of the previous steps fail.
+2. **CheckStatus**: Check if new data were downloaded from `webscraping-lambda`. If nothing was downloaded then do not invoke `cleaning-lambda`. 
+3. **Cleaning**: Invokes the `cleaning-lambda` function to process and clean the downloaded data.
+4. **NotifyFailure**: Sends an email notification via SNS if any of the previous steps fail.
 
 ## 🧪 Example Usage
 
@@ -68,9 +69,10 @@ print(f"Total number of requests sent: {request_count}")
 
 df = pd.concat(result, ignore_index=True)
 df['DATE'] = pd.to_datetime(df["DATE"], format="%Y-%m-%d")
-# df.to_parquet('data.parquet')
+df.to_parquet('data.parquet')
 df.head()
 ```
 
+### Definition
 
-
+![definition](https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/img.png?raw=true)

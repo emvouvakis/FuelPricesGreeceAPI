@@ -70,10 +70,12 @@ def download_file(link):
     file_name = link['href'].split('NOMO')[-1].replace("_", "")
     file_date_str = file_name.split(".")[0]
 
+    # Skip unwanted files
     unwanted = ["l.pdf", "?.pdf", ").pdf"]
     if any(unwanted_item in file_name for unwanted_item in unwanted):
         return None
-
+    
+    # Download the file only if it's not already processed
     if file_date_str not in all_data.keys() and file_date_str not in all_errors.keys():
         logger.info(f"Downloading file {file_name} from {link['href']}")
         response = requests.get(urljoin(url, link['href']))
@@ -97,7 +99,7 @@ def process_pdf(filename):
 
     if len(name) != 8:
         logger.info(f"File {filename} is not valid.")
-        return None, None
+        return name, None
 
     if name in all_data or name in all_errors:
         
@@ -163,12 +165,12 @@ def main(event, context):
     logger.info(f"Found {len(pdf_links)} PDF links.")
 
     # Download files in parallel
-    file_counter = 0
+    file_count = 0
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(download_file, pdf_links))
-        file_counter = sum(1 for result in results if result is not None)
+        file_count = sum(1 for result in results if result is not None)
 
-    logger.info(f"Downloaded {file_counter} new PDF files.")
+    logger.info(f"Downloaded {file_count} new PDF files.")
 
 
     logger.info(f"Starting parsing pdfs.")
@@ -177,7 +179,7 @@ def main(event, context):
     os.chdir('/tmp')
     filenames = [f for f in os.listdir(os.getcwd()) if f.endswith('.pdf')]
     logger.info(filenames)
-    number = 0
+    parsed_count = 0
     error_count = 0
 
     with ThreadPoolExecutor() as executor:
@@ -189,7 +191,7 @@ def main(event, context):
                 name, df = future.result()
                 if name and df is not None:
                     all_data[name] = df
-                    number += 1
+                    parsed_count += 1
                 elif name:
                     all_errors[name] = None
                     logging.error(f"Error processing {filename}")
@@ -202,8 +204,8 @@ def main(event, context):
             # Logging progress
             logging.info(f"Processed {i + 1}/{len(futures)} files")
 
-    if number > 0:
-        logger.info(f"Parsed {number} pdfs.")
+    if parsed_count > 0:
+        logger.info(f"Parsed {parsed_count} pdfs.")
         # Add this at the end of your handler function
         logger.info("Saving processed data back to S3.")
 
@@ -211,14 +213,16 @@ def main(event, context):
         handler.save_to_s3(all_errors, PARSED_FOLDER + "all_errors.pkl")
 
         logger.info("Data saving completed.")
+
     else:
         logger.info("No new pdfs parsed.")
 
-    logger.info(f"Total successful parses: {number}")
+    logger.info(f"Total successful parses: {parsed_count}")
     logger.info(f"Total errors: {error_count}")
 
 
     return {
         "statusCode": 200,
-        "body": f"Downloaded {file_counter} new PDF files and parsed {number} files."
+        "downloaded": file_count,
+        "parsed": parsed_count        
     }

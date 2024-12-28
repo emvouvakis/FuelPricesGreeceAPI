@@ -106,11 +106,19 @@ stepFunctions:
           WebScraping:
             Type: Task
             Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${self:provider.stackName}-webscraping-lambda
-            Next: Cleaning
+            Next: CheckStatus
             Catch:
               - ErrorEquals: ["States.ALL"]
                 ResultPath: $.error
                 Next: NotifyFailure
+          # CheckStatus state checks the custom status from webscraping-lambda
+          CheckStatus:
+            Type: Choice
+            Choices:
+              - Variable: $.parsed
+                NumericEquals: 0
+                Next: EndState
+            Default: Cleaning
           # Cleaning state triggers the cleaning-lambda, which parses the PDFs and stores the data in s3 as parquet
           Cleaning:
             Type: Task
@@ -120,6 +128,9 @@ stepFunctions:
               - ErrorEquals: ["States.ALL"]
                 ResultPath: $.error
                 Next: NotifyFailure
+          # EndState is used to end the state machine execution if nothing was downloaded
+          EndState:
+            Type: Succeed
           # NotifyFailure state is used to send an SNS notification in case of failure
           NotifyFailure:
             Type: Task
