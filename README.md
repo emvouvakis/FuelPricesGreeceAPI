@@ -18,6 +18,12 @@ The state machine consists of 3 tasks:
 3. **Cleaning**: Invokes the `cleaning-lambda` function to process and clean the downloaded data.
 4. **NotifyFailure**: Sends an email notification via SNS if any of the previous steps fail.
 
+<br>
+
+<p align="center">
+    <img src="https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/img.png?raw=true" alt="definition">
+</p>
+
 ## 🧪 Example Usage
 
 To use the Fuel Prices Greece API, you can make HTTP GET requests to the `/data` endpoint. Below is an example of how to fetch data using Python and the `requests` library.
@@ -72,7 +78,3 @@ df['DATE'] = pd.to_datetime(df["DATE"], format="%Y-%m-%d")
 df.to_parquet('data.parquet')
 df.head()
 ```
-
-### Definition
-
-![definition](https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/img.png?raw=true)
