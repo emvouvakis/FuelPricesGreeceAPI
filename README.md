@@ -21,7 +21,7 @@ The state machine consists of 3 tasks:
 <br>
 
 <p align="center">
-    <img src="https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/img.png?raw=true" alt="definition">
+    <img src="https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/imgs/step_function.png?raw=true" alt="definition">
 </p>
 
 ## 🧪 Example Usage
@@ -78,3 +78,8 @@ df['DATE'] = pd.to_datetime(df["DATE"], format="%Y-%m-%d")
 df.to_parquet('data.parquet')
 df.head()
 ```
+### Architecture Diagram
+
+<p align="center">
+    <img src="https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/imgs/architecture_diagram.png?raw=true" alt="definition">
+</p>
