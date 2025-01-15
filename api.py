@@ -117,29 +117,8 @@ def main(event, context):
         # Get the path from the event
         path = event.get("path", "")
         
-        # Handle the /help path
-        if path == "/help":
-            # Define the response structure for help
-            response_structure = {
-                "filter_conditions": {
-                    "region": "string",
-                    "start_date": "YYYY-MM-DD",
-                    "end_date": "YYYY-MM-DD"
-                },
-                "pagination": {
-                    "limit": "integer",
-                    "offset": "integer"
-                }
-            }
-
-            # Create the response for the /help path
-            response = {
-                "statusCode": 200,
-                "body": json.dumps(response_structure)
-            }
-
-        # Handle the /data path
-        elif path == "/data":
+        # Handle /data path
+        if path == "/data":
             # Get filter conditions and pagination parameters from the query string
             filter_conditions = event.get("queryStringParameters", {})
             limit = int(filter_conditions.get("limit", 10000))
@@ -172,23 +151,6 @@ def main(event, context):
             response = {
                 "statusCode": 200,
                 "body": filtered_df.to_json(orient="records")
-            }
-
-        # Handle the root path
-        else:
-            # Create the response for the root path
-            response = {
-                "statusCode": 200,
-                "body": json.dumps(
-                    {
-                        "message": "Welcome to my Fuel Prices Greece API project.",
-                        "paths": {
-                            "/": "List of available paths",
-                            "/help": "Get help on how to use the API",
-                            "/data": "Get the data"
-                        }
-                    }
-                )
             }
 
     except Exception as e:

@@ -26,12 +26,21 @@ functions:
     name: ${self:provider.stackName}-webscraping-lambda
     handler: webscraping.main
     timeout: 180
+    environment:
+      S3_BUCKET: ${self:provider.deploymentBucket.name}
+      PARSED_FOLDER: parsed
+      HISTORY_DATA: history.pkl  
 
   # Lambda function that cleans the data (Parses PDFs and stores data in s3 as parquet)
   cleaning-lambda:
     name: ${self:provider.stackName}-cleaning-lambda
     handler: cleaning.main
     timeout: 180
+    environment:
+      S3_BUCKET: ${self:provider.deploymentBucket.name}
+      PARSED_FOLDER: parsed
+      HISTORY_DATA: history.pkl
+      CLEANED_DATA: cleaned_data.parquet
 
   # Lambda function that serves the API. 
   # The API is private and requires an API key
@@ -40,14 +49,6 @@ functions:
     name: ${self:provider.stackName}-api-lambda
     handler: api.main
     events:
-      - http:
-          path: /
-          method: get
-          private: true
-      - http:
-          path: /help
-          method: get
-          private: true
       - http:
           path: /data
           method: get

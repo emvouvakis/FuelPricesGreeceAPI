@@ -24,13 +24,13 @@ The state machine consists of 3 tasks:
     <img src="https://github.com/emvouvakis/FuelPricesGreeceAPI/blob/main/imgs/step_function.png?raw=true" alt="definition">
 </p>
 
-## 🧪 Example Usage
+## 🧪 API Usage
 
 To use the Fuel Prices Greece API, you can make HTTP GET requests to the `/data` endpoint. Below is an example of how to fetch data using Python and the `requests` library.
 
 ## 🔑 API Key
 
-The API requires an `x-api-key` header for all requests. This is used to keep track of API calls and set limits.
+The API requires the provided `x-api-key` header for all requests. This is used to keep track of API calls and set limits.
 
 ### Example Code
 

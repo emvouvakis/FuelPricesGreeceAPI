@@ -3,6 +3,7 @@ try:
 except ImportError:
   pass
 
+import io
 import os
 import requests
 from urllib.parse import urljoin
@@ -16,14 +17,14 @@ import pandas as pd
 import camelot
 
 class S3Handler:
-    def __init__(self, bucket_name, parsed_folder):
+    def __init__(self):
         
-        # AWS S3 bucket and folder configurations (set as environment variables)
-        self.bucket_name = bucket_name
-        self.parsed_folder = parsed_folder
+        # Get bucket name from the environment variable
+        self.bucket_name = os.environ.get("S3_BUCKET")
 
         self.s3_client = boto3.client("s3")
     
+   # Function to load historical data from S3
     def load_s3_data(self, key):
         """
         Load historical data from S3.
@@ -33,15 +34,24 @@ class S3Handler:
         """
         try:
             logger.info(f"Loading data from S3: {key}")
-            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
-            data = pickle.loads(response["Body"].read())
-            logger.info(f"Successfully loaded {key}")
+            response = self.s3_client.get_object(Bucket = self.bucket_name, Key=key)
+            file_extension = key.split('.')[-1].lower()
+
+            if file_extension == 'pkl':
+                data = pickle.loads(response["Body"].read())
+            elif file_extension == 'parquet':
+                buffer = io.BytesIO(response["Body"].read())
+                data = pd.read_parquet(buffer)
+            else:
+                raise ValueError(f"Unsupported file extension: {file_extension}")
+
+            logger.info(f"[INFO] Successfully loaded {key}")
             return data
         except self.s3_client.exceptions.NoSuchKey:
-            logger.warning(f"Key {key} does not exist in S3.")
+            logger.error(f"[ERROR] Key {key} does not exist in S3.")
             return {}
         except Exception as e:
-            logger.error(f"Error loading {key}: {e}")
+            logger.error(f"[ERROR] Error loading {key}: {e}")
             return {}
 
     def save_to_s3(self, data, key):
@@ -55,14 +65,57 @@ class S3Handler:
             logger.info(f"Saving data to S3: {key}")
             serialized_data = pickle.dumps(data)
             self.s3_client.put_object(
-                Bucket=self.bucket_name,
+                Bucket = self.bucket_name,
                 Key=key,
                 Body=serialized_data,
                 ContentType="application/octet-stream"
             )
-            logger.info(f"Successfully saved {key} to S3.")
+            logger.info(f"[INFO] Successfully saved {key} to S3.")
         except Exception as e:
-            logger.error(f"Error saving {key} to S3: {e}")
+            logger.error(f"[ERROR] Error saving {key} to S3: {e}")
+
+    def save_to_s3(self, data, key):
+        try:
+            
+            # Extract file extension from the key
+            file_extension = key.split('.')[-1].lower()
+            
+            # Log the key and detected file type
+            logger.info(f"[INFO] Saving data to S3: {key} with file extension: {file_extension}")
+            
+
+            if file_extension == 'parquet':
+                data.columns = data.columns.map(str)
+                with io.BytesIO() as buffer:
+                    # Write the DataFrame to Parquet format in the buffer
+                    data.to_parquet(buffer, index=False)
+                    buffer.seek(0)  # Move cursor to the start of the buffer
+
+                    self.s3_client.put_object(
+                        Bucket= self.bucket_name,
+                        Key=key,
+                        Body=buffer.getvalue(),
+                        ContentType="application/octet-stream"
+                    )
+
+            # Check if the file is a Pickle file (.pkl)
+            elif file_extension == 'pkl':
+                serialized_data = pickle.dumps(data)
+                self.s3_client.put_object(
+                    Bucket = self.bucket_name,
+                    Key=key,
+                    Body=serialized_data,
+                    ContentType="application/octet-stream"
+                )
+            
+            # If the file extension is neither xlsx nor pkl, raise an error
+            else:
+                raise ValueError(f"Unsupported file extension: {file_extension}")
+            
+            logger.info(f"[INFO] Successfully saved {key} to S3.")
+        
+        except Exception as e:
+            logger.error(f"[ERROR] Error saving {key} to S3: {e}")
 
 
 # Function to download and upload a single PDF to S3
@@ -76,7 +129,7 @@ def download_file(link):
         return None
     
     # Download the file only if it's not already processed
-    if file_date_str not in all_data.keys() and file_date_str not in all_errors.keys():
+    if file_date_str not in all_data.keys() and file_date_str not in all_errors:
         logger.info(f"Downloading file {file_name} from {link['href']}")
         response = requests.get(urljoin(url, link['href']))
         if response.status_code == 200:
@@ -86,10 +139,10 @@ def download_file(link):
             with open(temp_file_path, 'wb') as f:
                 f.write(response.content)
 
-            logger.info(f"Successfully uploaded {file_name} to S3")
+            logger.info(f"[INFO] Successfully uploaded {file_name} to S3")
             return file_name
         else:
-            logger.error(f"Failed to download {file_name} from {link['href']} - Status code: {response.status_code}")
+            logger.error(f"[ERROR] Failed to download {file_name} from {link['href']} - Status code: {response.status_code}")
     return None
 
 
@@ -104,9 +157,9 @@ def process_pdf(filename):
     if name in all_data or name in all_errors:
         
         if name in all_data:
-            logger.info(f"File {filename} already processed and found in all_data.")
+            logger.info(f"[INFO] File {filename} already processed and found in all_data.")
         elif name in all_errors:
-            logger.info(f"File {filename} already processed and found in all_errors.")
+            logger.info(f"[INFO] File {filename} already processed and found in all_errors.")
 
         return None, None  # Already processed
 
@@ -122,10 +175,10 @@ def process_pdf(filename):
         dfs = [table.df for table in temp_table if len(table.df)>15]
         
         combined_df = pd.concat(dfs).reset_index(drop=True)
-        logger.info(f"Finished processing:{filename}")
+        logger.info(f"[INFO] Finished processing:{filename}")
         return name, combined_df
     except Exception as e:
-        logger.error(f"Exception processing {filename}: {e}")
+        logger.error(f"[ERROR] Exception processing {filename}: {e}")
         return name, None  # Return None if processing fails
 
 
@@ -134,35 +187,28 @@ def main(event, context):
     global url, all_data, all_errors, logger
     url = 'http://www.fuelprices.gr/deltia_dn.view'
 
-    handler = S3Handler(bucket_name="fuelprices-greece",
-                    parsed_folder="parsed/")
-
-    # AWS S3 bucket and folder configurations (set as environment variables)
-    PARSED_FOLDER = handler.parsed_folder
-
-    # Configure logging
+    # Configure logging 
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     
-    logger.info("Starting web scraping process.")
+    logger.info("[INFO] Starting web scraping process.")
 
     # Load historical data from S3
-    all_data = handler.load_s3_data(PARSED_FOLDER + "all_data.pkl")
-    all_errors = handler.load_s3_data(PARSED_FOLDER + "all_errors.pkl")
+    handler = S3Handler()
+    history = handler.load_s3_data( os.path.join(os.environ.get("PARSED_FOLDER"), os.environ.get("HISTORY_DATA")) )
+
+    all_data = history.get("data", {})
+    all_errors = history.get("errors", [])
+
+    logger.info(f"[INFO] Historical data loaded: {len(all_data.keys())}")
+    logger.info(f"[INFO] Historical errors loaded: {len(all_errors)}")
     
     # Scrape the website for PDF links
-    response = requests.get(url)
-    if response.status_code != 200:
-        logger.error(f"Failed to fetch the website content - Status code: {response.status_code}")
-        return {
-            "statusCode": 500,
-            "body": "Failed to fetch the website content."
-        }
-    
+    response = requests.get(url)    
     soup = BeautifulSoup(response.text, "html.parser")
     pdf_links = soup.select("a[href$='.pdf']")
 
-    logger.info(f"Found {len(pdf_links)} PDF links.")
+    logger.info(f"[INFO] Found {len(pdf_links)} PDF links.")
 
     # Download files in parallel
     file_count = 0
@@ -170,10 +216,10 @@ def main(event, context):
         results = list(executor.map(download_file, pdf_links))
         file_count = sum(1 for result in results if result is not None)
 
-    logger.info(f"Downloaded {file_count} new PDF files.")
+    logger.info(f"[INFO] Downloaded {file_count} new PDF files.")
 
 
-    logger.info(f"Starting parsing pdfs.")
+    logger.info(f"[INFO] Starting parsing pdfs.")
 
     
     os.chdir('/tmp')
@@ -193,32 +239,32 @@ def main(event, context):
                     all_data[name] = df
                     parsed_count += 1
                 elif name:
-                    all_errors[name] = None
-                    logging.error(f"Error processing {filename}")
+                    all_errors.append(name)
+                    logging.error(f"[ERROR] Error processing {filename}")
                     error_count += 1
             except Exception as e:
-                logging.error(f"Exception processing {filename}: {e}")
-                all_errors[filename] = str(e)
+                logging.error(f"[ERROR] Exception processing {filename}: {e}")
+                all_errors.append(name)
                 error_count += 1
             
             # Logging progress
-            logging.info(f"Processed {i + 1}/{len(futures)} files")
+            logging.info(f"[INFO] Processed {i + 1}/{len(futures)} files")
 
     if parsed_count > 0:
-        logger.info(f"Parsed {parsed_count} pdfs.")
+        logger.info(f"[INFO] Parsed {parsed_count} pdfs.")
         # Add this at the end of your handler function
-        logger.info("Saving processed data back to S3.")
+        logger.info("[INFO] Saving processed data back to S3.")
 
-        handler.save_to_s3(all_data, PARSED_FOLDER + "all_data.pkl")
-        handler.save_to_s3(all_errors, PARSED_FOLDER + "all_errors.pkl")
+        history = {'data': all_data, 'errors': all_errors}
+        handler.save_to_s3(history, os.path.join(os.environ.get("PARSED_FOLDER"), os.environ.get("HISTORY_DATA")) )
 
-        logger.info("Data saving completed.")
+        logger.info("[INFO] Data saving completed.")
 
     else:
-        logger.info("No new pdfs parsed.")
+        logger.info("[INFO] No new pdfs parsed.")
 
-    logger.info(f"Total successful parses: {parsed_count}")
-    logger.info(f"Total errors: {error_count}")
+    logger.info(f"[INFO] Total successful parses: {parsed_count}")
+    logger.info(f"[INFO] Total errors: {error_count}")
 
 
     return {

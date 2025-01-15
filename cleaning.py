@@ -10,12 +10,113 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 import json
 import io
+import os
+import unicodedata
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-import unicodedata
+class S3Handler:
+    def __init__(self):
+        
+        # Get bucket name from the environment variable
+        self.bucket_name = os.environ.get("S3_BUCKET")
+
+        self.s3_client = boto3.client("s3")
+    
+   # Function to load historical data from S3
+    def load_s3_data(self, key):
+        """
+        Load historical data from S3.
+        
+        :param key: S3 object key
+        :return: Deserialized data or an empty dictionary on failure
+        """
+        try:
+            logger.info(f"Loading data from S3: {key}")
+            response = self.s3_client.get_object(Bucket = self.bucket_name, Key=key)
+            file_extension = key.split('.')[-1].lower()
+
+            if file_extension == 'pkl':
+                data = pickle.loads(response["Body"].read())
+            elif file_extension == 'parquet':
+                buffer = io.BytesIO(response["Body"].read())
+                data = pd.read_parquet(buffer)
+            else:
+                raise ValueError(f"Unsupported file extension: {file_extension}")
+
+            logger.info(f"Successfully loaded {key}")
+            return data
+        except self.s3_client.exceptions.NoSuchKey:
+            logger.warning(f"Key {key} does not exist in S3.")
+            return {}
+        except Exception as e:
+            logger.error(f"Error loading {key}: {e}")
+            return {}
+
+    def save_to_s3(self, data, key):
+        """
+        Save processed data back to S3.
+        
+        :param data: Data to serialize and save
+        :param key: S3 object key
+        """
+        try:
+            logger.info(f"Saving data to S3: {key}")
+            serialized_data = pickle.dumps(data)
+            self.s3_client.put_object(
+                Bucket = self.bucket_name,
+                Key=key,
+                Body=serialized_data,
+                ContentType="application/octet-stream"
+            )
+            logger.info(f"Successfully saved {key} to S3.")
+        except Exception as e:
+            logger.error(f"Error saving {key} to S3: {e}")
+
+    def save_to_s3(self, data, key):
+        try:
+            
+            # Extract file extension from the key
+            file_extension = key.split('.')[-1].lower()
+            
+            # Log the key and detected file type
+            logger.info(f"Saving data to S3: {key} with file extension: {file_extension}")
+            
+
+            if file_extension == 'parquet':
+                data.columns = data.columns.map(str)
+                with io.BytesIO() as buffer:
+                    # Write the DataFrame to Parquet format in the buffer
+                    data.to_parquet(buffer, index=False)
+                    buffer.seek(0)  # Move cursor to the start of the buffer
+
+                    self.s3_client.put_object(
+                        Bucket= self.bucket_name,
+                        Key=key,
+                        Body=buffer.getvalue(),
+                        ContentType="application/octet-stream"
+                    )
+
+            # Check if the file is a Pickle file (.pkl)
+            elif file_extension == 'pkl':
+                serialized_data = pickle.dumps(data)
+                self.s3_client.put_object(
+                    Bucket = self.bucket_name,
+                    Key=key,
+                    Body=serialized_data,
+                    ContentType="application/octet-stream"
+                )
+            
+            # If the file extension is neither xlsx nor pkl, raise an error
+            else:
+                raise ValueError(f"Unsupported file extension: {file_extension}")
+            
+            logger.info(f"Successfully saved {key} to S3.")
+        
+        except Exception as e:
+            logger.error(f"Error saving {key} to S3: {e}")
 
 def clean_text(text):
 
@@ -169,106 +270,22 @@ def clean_text(text):
         text = text.replace(old, new)
 
     return text
-
-s3_client = boto3.client("s3")
-# AWS S3 bucket and folder configurations (set as environment variables)
-BUCKET_NAME = "fuelprices-greece"
-PARSED_FOLDER = "parsed/"
-
-# Function to load historical data from S3
-def load_s3_data(key):
-    try:
-        logger.info(f"Loading data from S3: {key}")
-        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-        file_extension = key.split('.')[-1].lower()
-
-        if file_extension == 'pkl':
-            data = pickle.loads(response["Body"].read())
-        elif file_extension == 'parquet':
-            buffer = io.BytesIO(response["Body"].read())
-            data = pd.read_parquet(buffer)
-        else:
-            raise ValueError(f"Unsupported file extension: {file_extension}")
-
-        logger.info(f"Successfully loaded {key}")
-        return data
-    except s3_client.exceptions.NoSuchKey:
-        logger.warning(f"Key {key} does not exist in S3.")
-        return {}
-    except Exception as e:
-        logger.error(f"Error loading {key}: {e}")
-        return {}
-    
-def save_to_s3(data, key):
-    try:
-        
-        # Extract file extension from the key
-        file_extension = key.split('.')[-1].lower()
-        
-        # Log the key and detected file type
-        logger.info(f"Saving data to S3: {key} with file extension: {file_extension}")
-        
-        # Check if the file is an Excel file (.xlsx)
-        if file_extension == 'xlsx':
-            with io.BytesIO() as buffer:
-                # Use openpyxl engine (this is the default for pd.ExcelWriter)
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    data.to_excel(writer, index=False)
-                buffer.seek(0)  # Move cursor to the start of the buffer
-
-                s3_client.put_object(
-                    Bucket=BUCKET_NAME,
-                    Key=key,
-                    Body=buffer,
-                    ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-        elif file_extension == 'parquet':
-            data.columns = data.columns.map(str)
-            with io.BytesIO() as buffer:
-                # Write the DataFrame to Parquet format in the buffer
-                data.to_parquet(buffer, index=False)
-                buffer.seek(0)  # Move cursor to the start of the buffer
-
-                s3_client.put_object(
-                    Bucket=BUCKET_NAME,
-                    Key=key,
-                    Body=buffer.getvalue(),
-                    ContentType="application/octet-stream"
-                )
-
-        # Check if the file is a Pickle file (.pkl)
-        elif file_extension == 'pkl':
-            serialized_data = pickle.dumps(data)
-            s3_client.put_object(
-                Bucket=BUCKET_NAME,
-                Key=key,
-                Body=serialized_data,
-                ContentType="application/octet-stream"
-            )
-        
-        # If the file extension is neither xlsx nor pkl, raise an error
-        else:
-            raise ValueError(f"Unsupported file extension: {file_extension}")
-        
-        logger.info(f"Successfully saved {key} to S3.")
-    
-    except Exception as e:
-        logger.error(f"Error saving {key} to S3: {e}")
     
 
 def main(event, context):
-    logger.info(f"addition works")
+    logger.info(f"Starting cleaning process.")
 
     # Load historical data from S3
-    all_data = load_s3_data(PARSED_FOLDER + "all_data.pkl")
-    all_errors = load_s3_data(PARSED_FOLDER + "all_errors.pkl")
+    handler = S3Handler()
+    history = handler.load_s3_data( os.path.join(os.environ.get("PARSED_FOLDER"), os.environ.get("HISTORY_DATA")) )
+
+    all_data = history.get("data", {})
+    all_errors = history.get("errors", [])
 
     # Load previously cleaned data from S3
     # This is used to avoid re-cleaning data that has already been cleaned
     try:
-
-        cleaned_data = load_s3_data(PARSED_FOLDER + "cleaned_data.parquet")
+        cleaned_data = handler.load_s3_data( os.path.join( os.environ.get("PARSED_FOLDER"), os.environ.get("CLEANED_DATA") ) )
         cleaned_data_keys = pd.to_datetime(cleaned_data["DATE"], format="%d-%m-%Y").dt.strftime("%d%m%Y").unique().tolist()
         logger.info(f"Loaded cleaned data with {cleaned_data.shape[0]} rows.")
 
@@ -294,7 +311,7 @@ def main(event, context):
             dfs_transformed_dict[date] = df
 
         else:
-            all_errors[date]= df
+            all_errors[date] = None
             logger.warning(f"Skipping transformation for {date} due to errors.")
 
 
@@ -306,10 +323,8 @@ def main(event, context):
 
     for date in problematic_dfs:
         if date in dfs_transformed_dict:
-            all_errors[date] = dfs_transformed_dict[date]
+            all_errors[date] = None
             del dfs_transformed_dict[date]
-            
-
 
     dfs_transformed_list = [df for _, df in dfs_transformed_dict.items()]
 
@@ -338,8 +353,9 @@ def main(event, context):
             logger.info(f"Appending new data to existing cleaned data.")
             result_df = pd.concat([cleaned_data, result_df], ignore_index=True, sort=True)
 
-        save_to_s3(all_errors, PARSED_FOLDER + "all_errors.pkl")
-        save_to_s3(result_df, PARSED_FOLDER + "cleaned_data.parquet")
+        history = {'data': all_data, 'errors': all_errors}
+        handler.save_to_s3(history, os.path.join(os.environ.get("PARSED_FOLDER"), os.environ.get("HISTORY_DATA")) )
+        handler.save_to_s3(result_df, os.path.join( os.environ.get("PARSED_FOLDER"), os.environ.get("CLEANED_DATA") ))
         
     else:
         logger.info(f"No new data to save to S3.")
@@ -470,7 +486,3 @@ def cleaning(date_df):
         # all_errors[date] = {'STAGE':'CLEANING_4', 'MSG':str(e), 'DF':df}
         logger.info({'STAGE':'CLEANING_4', 'MSG':str(e)})
         return date, None
-    
-   
-
-
